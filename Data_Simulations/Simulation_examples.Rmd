@@ -1,0 +1,163 @@
+---
+title: "Simulations with mrgsolve"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(mrgsolve)
+library(rstan)
+library(dplyr)
+```
+
+## 2 compartments PK 
+
+
+```{r}
+mod <- mread("pk2", modlib())
+
+print(see(mod))
+print(param(mod))
+```
+
+```{r}
+mod %>% 
+  ev(amt=100) %>%
+  mrgsim(delta = 0.1, end=200) %>%
+  plot()
+```
+
+```{r}
+mod %>% 
+  ev(amt=100, ii=20, addl=4) %>%
+  mrgsim(delta = 0.1, end=200) %>%
+  plot()
+```
+
+```{r}
+mod %>% 
+  ev(amt=100, ii=20, addl=4) %>%
+  Req(EV, CP) %>%
+  mrgsim(delta = 0.1, end=200) %>%
+  plot()
+```
+
+
+```{r}
+mod %>% 
+  ev(amt=100, ii=20, addl=4, cmt=2, rate=8) %>%
+  mrgsim(delta = 0.1, end=200) %>%
+  plot()
+```
+
+
+```{r}
+mod <- mread("pk2", modlib())
+
+idata <- expand.idata(V2 = c(10, 30, 70))
+idata
+param(mod)
+
+mod %>% 
+  ev(amt=100, ii=20, addl=4) %>%
+  idata_set(idata) %>%
+  Req(CP) %>%
+  mrgsim(delta = 0.1, end=200) %>%
+  plot() 
+```
+
+```{r}
+idata <- expand.idata(V2 = c(10, 30, 70),
+                      CL = c(0.5, 1))
+idata
+
+mod %>% 
+  ev(amt=100, ii=20, addl=4) %>%
+  idata_set(idata) %>%
+  Req(CP) %>%
+  mrgsim(delta = 0.1, end=200) %>%
+  plot() 
+
+mod %>% 
+  ev(amt=100, ii=20, addl=4) %>%
+  idata_set(idata) %>%
+  Req(CP) %>%
+  carry_out(V2, CL) %>%
+  mrgsim(delta = 0.1, end=200) %>%
+  plot(CP ~ time | factor(CL), scales="same") 
+
+```
+
+
+## Random effects
+
+```{r}
+mod <- mread("popex", getwd()) 
+
+see(mod)
+param(mod)
+
+idata <- expand.idata(WT = runif(100, 40, 140))
+
+mod %>% 
+  ev(amt=100) %>% 
+  idata_set(idata) %>%
+  mrgsim(end=48, delta=0.1) 
+
+mod %>% 
+  ev(amt=100) %>% 
+  idata_set(idata) %>%
+  mrgsim(end=48, delta=0.1) %>%
+  plot(DV~time)
+```
+
+**Without random effects just the influence of the weight**
+
+```{r}
+mod %>% 
+  ev(amt=100) %>% 
+  idata_set(idata) %>%
+  zero_re() %>%
+  mrgsim(end=48, delta=0.1) %>%
+  plot(DV~time)
+```
+
+```{r}
+data <- expand.ev(ID = 1:15, amt=c(250, 500)) %>% mutate(dose=amt)
+
+data <- mutate(data, WT = runif(n(), 50, 130))
+
+mod %>%
+  data_set(data) %>%
+  Req(DV) %>%
+  carry_out(dose) %>%
+  zero_re() %>%
+  mrgsim(end=72, delta=0.1) %>%
+  plot(DV ~ time | factor(dose), scales="same")
+```
+
+**With the random effects** 
+
+```{r}
+mod %>%
+  data_set(data) %>%
+  Req(DV) %>%
+  carry_out(dose) %>%
+  mrgsim(end=72, delta=0.1) %>%
+  plot(DV ~ time | factor(dose), scales="same")
+```
+```{r}
+data("exTheoph")
+head(exTheoph)
+
+mod %>%
+  data_set(exTheoph) %>%
+  mrgsim() %>%
+  plot(DV~time, type='b')
+
+mod %>%
+  data_set(exTheoph, evid==1) %>%
+  mrgsim() %>%
+  plot(DV~time, type='b')
+```

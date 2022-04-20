@@ -1,0 +1,287 @@
+---
+title: "Data simulations for two conponents models"
+output: html_notebook
+---
+
+```{r}
+library(mrgsolve)
+library(rstan)
+library(dplyr)
+library(rjson)
+```
+
+#Create data sets 
+
+```{r}
+TVKA = 2.5
+TVQ = 15
+TVCL = 10
+TVV2 = 35
+TVV3 = 105
+```
+
+
+## No residual noise data set
+
+```{r}
+modelName <- "Pop2Cpt_noresnoise"
+mod <- mread("pop_noresnoise", getwd()) 
+see(mod)
+param(mod)
+
+nSub <- 15
+
+data <- expand.ev(amt = 80 * 1000, addl = 14, ii = 12, WT = rnorm(nSub, 70, 15)) %>% 
+  mutate(dose=amt) 
+
+mod %>% 
+  data_set(data)  %>%
+  carry.out(cmt, amt, ii, addl, evid, ss, WT) %>%
+  mrgsim(Req = "DV", end=20, delta=0.5, rescort = 3) %>% 
+  plot(DV~time)
+
+out <- mod %>% 
+  data_set(data)  %>%
+  carry.out(cmt, amt, ii, addl, evid, ss, WT) %>%
+  mrgsim(Req = "DV", end=20, delta=0.5, rescort = 3) %>%
+  as.data.frame
+
+out <- out[!((out$evid == 0) & (out$DV == 0)),]
+out
+```
+
+```{r}
+N <- nrow(out)
+nt <-  20 / 0.5
+iObs <- with(out, (1:nrow(out))[evid == 0])
+nObs <- length(iObs)
+
+xsub <- subset(out, !duplicated(ID))
+nSubjects <- length(xsub$ID)
+startID <- (1:nObs)[!duplicated(out$ID)] 
+endID <- c(startID[-1] - 1, N)
+
+nIIV <- 4
+```
+
+
+**Convert to Stan**
+
+```{r}
+data <- with(out,
+             list(N = N,
+                  nt = nt,
+                  nSubjects = nSubjects,
+                  start = startID,
+                  end = endID,
+                  nObs = nObs,
+                  iObs = iObs,
+                  time = time,
+                  cObs = DV[iObs],
+                  amt =  amt,
+                  cmt = cmt,
+                  evid = evid,
+                  ii = ii,
+                  addl = addl,
+                  ss = ss,
+                  nIIV = nIIV,
+                  weight = unique(WT))) 
+```
+
+```{r}
+#with(data, stan_rdump(ls(data), file = paste0(modelName,".data.R")))
+jsonData <- toJSON(data)
+write(jsonData, paste0(modelName, ".data", ".json"))
+```
+
+
+
+**Initial estimates**
+
+```{r}
+init <- function()
+  list(CL_pop = rnorm(1, TVCL, 0.1),
+       Q_pop = rnorm(1, TVQ, 0.5),
+       V1 = rnorm(1, TVV2, 0.5),
+       V2_pop = rnorm(1, TVV3, 1),
+       ka_pop = rnorm(1, TVKA, 0.01),
+       sigma = runif(1, 0.001, 0.5),
+       omega = runif(nIIV, 0, 0.5))
+
+inits <- init()
+#with(inits, stan_rdump(ls(inits), file = paste0(modelName,".init.R")))
+jsonInits <- toJSON(inits)
+write(jsonInits, paste0(modelName, ".init", ".json"))
+```
+
+
+## Without any noise
+
+```{r}
+modelName <- "Pop2Cpt_NONoise"
+mod <- mread("pop_noresnoise", getwd()) 
+see(mod)
+param(mod)
+
+data <- expand.ev(ID = 1:15, amt=c(500)) %>% 
+  mutate(dose=amt, WT = runif(n(), 40, 100))
+  
+mod %>% 
+  data_set(data)  %>%
+  zero_re() %>%
+  carry.out(cmt, amt, ii, addl, evid, ss, WT) %>%
+  mrgsim(Req = "DV", end=40, delta=0.5) %>% 
+  plot(DV~time)
+
+out <- mod %>% 
+  data_set(data)  %>%
+  zero_re() %>%
+  carry.out(cmt, amt, ii, addl, evid, ss, WT) %>%
+  mrgsim(Req = "DV", end=40, delta=0.5) %>%
+  as.data.frame
+
+out <- out[!((out$evid == 0) & (out$DV == 0)),]
+
+N <- nrow(out)
+nt <- 40 / 0.5
+iObs <- with(out, (1:nrow(out))[evid == 0])
+nObs <- length(iObs)
+
+xsub <- subset(out, !duplicated(ID))
+nSubjects <- length(xsub$ID)
+startID <- (1:nObs)[!duplicated(out$ID)] 
+endID <- c(startID[-1] - 1, N)
+
+nIIV <- 4
+
+data <- with(out,
+             list(N = N,
+                  nt = nt,
+                  nSubjects = nSubjects,
+                  start = startID,
+                  end = endID,
+                  nObs = nObs,
+                  iObs = iObs,
+                  time = time,
+                  cObs = DV[iObs],
+                  amt =  amt,
+                  cmt = cmt,
+                  evid = evid,
+                  ii = ii,
+                  addl = addl,
+                  ss = ss,
+                  nIIV = nIIV,
+                  weight = unique(WT))) 
+
+#with(data, stan_rdump(ls(data), file = paste0(modelName,".data.R")))
+jsonData <- toJSON(data)
+write(jsonData, paste0(modelName, ".data", ".json"))
+
+init <- function()
+  list(CL_pop = rnorm(1, TVCL, 0.1),
+       Q_pop = rnorm(1, TVQ, 0.5),
+       V1 = rnorm(1, TVV2, 0.5),
+       V2_pop = rnorm(1, TVV3, 1),
+       ka_pop = rnorm(1, TVKA, 0.01),
+       sigma = runif(1, 0.001, 0.5),
+       omega = runif(nIIV, 0, 0.5))
+inits <- init()
+#with(inits, stan_rdump(ls(inits), file = paste0(modelName,".init.R")))
+jsonInits <- toJSON(inits)
+write(jsonInits, paste0(modelName, ".init", ".json"))
+```
+
+
+```{r}
+data <- expand.ev(ID = 1:15, amt=c(500)) %>% 
+  mutate(dose=amt, WT = runif(n(), 40, 100)) 
+
+mod %>% 
+  data_set(data)  %>%
+  zero_re() %>%
+  carry.out(cmt, amt, ii, addl, evid, ss, WT) %>%
+  mrgsim(Req = "CL, Q, V2, V3", end=40, delta=0.5) 
+```
+
+
+
+
+```{r}
+modelName <- "with_ode_simple"
+mod <- mread("pop_with_ODE", getwd()) 
+see(mod)
+param(mod)
+
+nSub <- 15
+
+data <- expand.ev(amt = 80 * 1000,  WT = rnorm(nSub, 70, 15)) %>% 
+  mutate(dose=amt) 
+
+mod %>% 
+  data_set(data)  %>%
+  carry.out(cmt, amt, ii, addl, evid, ss, WT) %>%
+  mrgsim(Req = "DV", end=10, delta=0.5, rescort = 3) %>% 
+  plot(DV~time)
+
+out <- mod %>% 
+  data_set(data)  %>%
+  carry.out(cmt, amt, ii, addl, evid, ss, WT) %>%
+  mrgsim(Req = "DV", end=10, delta=0.5, rescort = 3) %>%
+  as.data.frame
+
+out <- out[!((out$evid == 0) & (out$DV == 0)),]
+out
+
+
+N <- nrow(out)
+nt <- 40 / 0.5
+iObs <- with(out, (1:nrow(out))[evid == 0])
+nObs <- length(iObs)
+
+xsub <- subset(out, !duplicated(ID))
+nSubjects <- length(xsub$ID)
+startID <- (1:nObs)[!duplicated(out$ID)] 
+endID <- c(startID[-1] - 1, N)
+
+nIIV <- 4
+
+data <- with(out,
+             list(N = N,
+                  nt = nt,
+                  nSubjects = nSubjects,
+                  start = startID,
+                  end = endID,
+                  nObs = nObs,
+                  iObs = iObs,
+                  time = time,
+                  cObs = DV[iObs],
+                  amt =  amt,
+                  cmt = cmt,
+                  evid = evid,
+                  ii = ii,
+                  addl = addl,
+                  ss = ss,
+                  nIIV = nIIV,
+                  weight = unique(WT))) 
+
+#with(data, stan_rdump(ls(data), file = paste0(modelName,".data.R")))
+jsonData <- toJSON(data)
+write(jsonData, paste0(modelName, ".data", ".json"))
+
+init <- function()
+  list(CL_pop = rnorm(1, 10, 0.1),
+       Q_pop = rnorm(1, 15, 0.5),
+       V1 = rnorm(1, 30, 0.5),
+       V2_pop = rnorm(1, 100, 1),
+       ka_pop = rnorm(1, 2, 0.01),
+       sigma = runif(1, 0.01, 0.5),
+       omega = runif(nIIV, 0, 0.5))
+inits <- init()
+#with(inits, stan_rdump(ls(inits), file = paste0(modelName,".init.R")))
+jsonInits <- toJSON(inits)
+write(jsonInits, paste0(modelName, ".init", ".json"))
+```
+
+
+
+
